@@ -1,12 +1,16 @@
 """Child graph: the review of one claim in one region.
 
 Runs on its own thread (claim_id:region), so each region's reviewer resumes
-independently. Nodes are placeholders for now; real checks replace them later.
+independently. Check nodes are placeholders for now; real checks replace them later.
 """
 from typing import TypedDict
 
 from langgraph.graph import StateGraph, START, END
 from langgraph.types import interrupt
+
+from claim_clearance.db import connect
+from claim_clearance.memory import make_store, save_lesson
+from claim_clearance.tracker import decide_region
 
 
 class ChildState(TypedDict, total=False):
@@ -21,6 +25,7 @@ class ChildState(TypedDict, total=False):
     recommendation: str
     decision: dict
     override: bool
+    claim_closed: bool
 
 
 def regulatory_check(state):
@@ -51,9 +56,30 @@ def human_review(state):
     return {"decision": decision}
 
 
-def finalize(state):
-    # Side effects (tracker, memory) are wired here next. They belong AFTER the pause.
-    return {"override": state["decision"]["decision"] != state["recommendation"]}
+async def finalize(state):
+    # All side effects happen here, after the pause, and every one is safe to repeat.
+    decision = state["decision"]
+    override = decision["decision"] != state["recommendation"]
+
+    # 1. Save the lesson first (keyed by claim_id, so a re-run replaces it).
+    if override:
+        async with make_store() as store:
+            await save_lesson(store, {
+                "claim_id": state["claim_id"], "region": state["region"],
+                "product": state["product"], "medium": state["medium"],
+                "claim_text": state["claim_text"],
+                "system_recommendation": state["recommendation"],
+                "reviewer_decision": decision["decision"],
+                "reason": decision.get("reason", ""),
+            })
+
+    # 2. Record the decision last. Once this succeeds, the lesson is already saved.
+    async with await connect() as conn:
+        remaining = await decide_region(
+            conn, state["claim_id"], state["region"], decision["decision"]
+        )
+
+    return {"override": override, "claim_closed": remaining == 0}
 
 
 def build_child_graph(checkpointer):
