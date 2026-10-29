@@ -56,16 +56,19 @@ def recommend(state):
 
 
 def human_review(state):
+    """Pauses until a reviewer answers, then stores the answer in state.
+
+    The graph expects the resume value to be a dict:
+        {"decision": "approve" | "reject", "reason": "<text>"}
+    - decision is required and must be exactly "approve" or "reject".
+    - reason is required only when decision differs from the system's recommendation
+      (an override), because overrides are saved as lessons.
+
+    The graph does NOT validate this. The App is the single door reviewers answer
+    through and must enforce it. A malformed answer that gets past the App is saved
+    in the checkpoint and will fail finalize on every retry (the claim gets stuck).
+    """
     # Nothing before interrupt(): this node re-runs from the top on resume.
-    decision = interrupt({
-        "claim_id": state["claim_id"],
-        "region": state["region"],
-        "claim_text": state["claim_text"],
-        "global_findings": state["global_findings"],
-        "recommendation": state["recommendation"],
-        "risk": state["risk"],
-    })
-    return {"decision": decision}
 
 
 async def finalize(state):
