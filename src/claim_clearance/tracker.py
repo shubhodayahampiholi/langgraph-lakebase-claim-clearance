@@ -4,7 +4,7 @@ One row per (claim, region). A claim is closed when no region is awaiting.
 """
 
 
-async def create_table(conn):
+async def create_regions_table(conn):
     await conn.execute("""
         CREATE TABLE IF NOT EXISTS claim_regions (
             claim_id   text NOT NULL,
