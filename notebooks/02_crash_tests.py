@@ -121,3 +121,71 @@ async with AsyncCheckpointSaver(autoscaling_endpoint=ENDPOINT) as checkpointer:
     print("  dispatched:", out["dispatched"])
     print("AFTER THE RETRY")
     await report(checkpointer, parent)
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ### Test 2: finalize crashes after saving the lesson, before recording the decision
+
+# COMMAND ----------
+
+from langgraph.types import Command
+import claim_clearance.child_graph as cg
+from claim_clearance.memory import make_store, lesson_namespace
+
+CLAIM_ID_2 = "CLM-1600"
+cfg_parent_2 = {"configurable": {"thread_id": CLAIM_ID_2}}
+cfg_uk = {"configurable": {"thread_id": f"{CLAIM_ID_2}:UK"}}
+
+async with await connect() as conn:
+    await create_claim(conn, {
+        "claim_id": CLAIM_ID_2, "product": "PainRelief Tablets", "medium": "TV",
+        "claim_text": "Clinically proven to relieve pain in 15 minutes",
+        "regions": ["UK"],
+    })
+
+# A version of decide_region that fails on its first call only.
+real_decide = cg.decide_region
+decide_attempts = {"count": 0}
+
+async def flaky_decide(conn, claim_id, region, decision):
+    decide_attempts["count"] += 1
+    if decide_attempts["count"] == 1:
+        raise RuntimeError("simulated crash while recording the decision")
+    return await real_decide(conn, claim_id, region, decision)
+
+async def report2(child):
+    s = await child.aget_state(cfg_uk)
+    print("  UK thread next:", s.next, "| errors:", [t.error for t in s.tasks if t.error])
+    async with await connect() as conn:
+        print("  claim status:", (await get_claim(conn, CLAIM_ID_2))["status"])
+        print("  tracker:", await list_regions(conn, CLAIM_ID_2))
+    async with make_store() as store:
+        item = await store.aget(lesson_namespace("UK"), CLAIM_ID_2)
+        print("  lesson saved:", item is not None)
+
+async with AsyncCheckpointSaver(autoscaling_endpoint=ENDPOINT) as checkpointer:
+    parent = build_parent_graph(checkpointer, start_region)
+    await parent.ainvoke({"claim_id": CLAIM_ID_2}, cfg_parent_2)  # UK pauses at human_review
+
+    cg.decide_region = flaky_decide  # from now on, finalize's first attempt fails
+    try:
+        child = build_child_graph(checkpointer)
+
+        print("RUN 1 (reviewer overrides)")
+        try:
+            await child.ainvoke(
+                Command(resume={"decision": "reject", "reason": "Evidence too thin"}), cfg_uk
+            )
+        except Exception as e:
+            print("  crashed:", repr(e))
+        print("AFTER THE CRASH")
+        await report2(child)
+
+        print("RUN 2 (continue; the reviewer is not asked again)")
+        r = await child.ainvoke(None, cfg_uk)
+        print("  decision kept:", r["decision"], "| claim_closed:", r["claim_closed"])
+        print("AFTER THE RETRY")
+        await report2(child)
+    finally:
+        cg.decide_region = real_decide  # always put the real function back
