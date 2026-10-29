@@ -70,6 +70,16 @@ def human_review(state):
     """
     # Nothing before interrupt(): this node re-runs from the top on resume.
 
+    decision = interrupt({
+    "claim_id": state["claim_id"],
+    "region": state["region"],
+    "claim_text": state["claim_text"],
+    "global_findings": state["global_findings"],
+    "recommendation": state["recommendation"],
+    "risk": state["risk"],
+    })
+    return {"decision": decision}
+
 
 async def finalize(state):
     # All side effects happen here, after the pause, and every one is safe to repeat.
