@@ -39,9 +39,8 @@ CHILD (thread = claim_id:UK)    (claim_id:US)                    (claim_id:IN)
 | Checkpointing, tracker, parent and child graphs, memory | Run in the author's workspace |
 | Crash tests (`05_crash_tests`) | Run in the author's workspace |
 | Region start as a Databricks Job (`job_run_region`, `launcher.py`) | Run in the author's workspace |
-| Corpus build and parse/chunk (`01`, `02`) | Run in the author's workspace |
-| `00_setup`, `03_create_search_index`, `04_run_a_claim` | **Not yet run as written** (the same steps were run as separate cells) |
-| A fresh-account run from a clean clone | **Not done** |
+| `00_setup` to `04_run_a_claim` | Run in the author's workspace, where the catalog, tables, endpoint and index already existed. |
+
 
 Model outputs vary between runs, even at temperature 0. In testing, the same claim was judged differently by the same model on different days.
 
