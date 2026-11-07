@@ -22,6 +22,10 @@ Any claim that a product has an effect must be supported by at least two indepen
 randomised, controlled trials that each show the effect. Independent means designed,
 conducted and analysed without involvement of the manufacturer.
 
+A trial supports a claim if it shows the kind of effect the claim describes. This
+standard does not require that a trial measured the specific time point stated in a
+claim (see Rule 3).
+
 A claim supported by fewer than two such trials is not approved.
 
 ## Rule 2: Claims must not overstate the evidence
@@ -29,6 +33,9 @@ A claim supported by fewer than two such trials is not approved.
 A claim must not state or imply an effect that is larger than, or different in kind
 from, the effect shown in the supporting trials. Wording is assessed against the
 overall body of evidence, not against any single measurement.
+
+A difference between a time point stated in a claim and the time points measured in
+the trials is governed by Rule 3 and is not, by itself, overstatement under this rule.
 
 ## Rule 3: No separate timing requirement
 
