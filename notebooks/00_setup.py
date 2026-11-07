@@ -11,11 +11,11 @@
 
 # COMMAND ----------
 
-# MAGIC %pip install -U "databricks-langchain[memory]" langgraph
+# MAGIC %md
+# MAGIC The binary build of psycopg crashes on Databricks serverless (FIPS self-test failure), so remove it.
 
 # COMMAND ----------
 
-# The binary build of psycopg crashes on Databricks serverless (FIPS self-test failure).
 # MAGIC %pip uninstall -y psycopg-binary
 
 # COMMAND ----------
