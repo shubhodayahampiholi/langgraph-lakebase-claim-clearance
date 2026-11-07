@@ -146,3 +146,66 @@ print("UK timing rule sits under the header:", timing["section_header"])
 
 print("\n--- study-1 Results chunk ---")
 print(res)
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ### Refresh: re-chunk only the documents that changed
+# MAGIC Uses the stored parse, so it makes no AI calls. Deletes the old chunk rows of the listed
+# MAGIC documents and appends the new ones, so the other documents and the search index are
+# MAGIC left in place. Safe to repeat.
+
+# COMMAND ----------
+
+import json
+
+TABLE = "claim_clearance.knowledge.chunks"
+CHANGED = ["us-rules", "in-rules"]  # fixed list written here, never taken from outside
+
+manifest = {
+    m["doc_id"]: m
+    for m in json.load(open("/Volumes/claim_clearance/knowledge/corpus/manifest.json"))
+}
+
+rows = []
+for doc_id in CHANGED:
+    tags = manifest[doc_id]
+    parsed_json = spark.sql(
+        "SELECT parsed_json FROM claim_clearance.knowledge.parsed_documents WHERE doc_id = :d",
+        args={"d": doc_id},
+    ).first()["parsed_json"]
+    parsed = json.loads(parsed_json)
+    if parsed.get("error_status"):
+        raise RuntimeError(f"{doc_id}: {parsed['error_status']}")
+
+    title, sections = sections_from(parsed["document"]["elements"])
+    for i, (header, body) in enumerate(sections):
+        rows.append({
+            "chunk_key": f"{doc_id}:{i}",
+            "doc_id": doc_id,
+            "section_index": i,
+            "section_header": header,
+            "scope": tags["scope"],
+            "product": tags["product"],
+            "doc_type": tags["doc_type"],
+            "chunk_text": f"{title}\n{header}\n\n" + "\n".join(body),
+        })
+    print(doc_id, "->", sum(1 for r in rows if r["doc_id"] == doc_id), "chunk(s)")
+
+for doc_id in CHANGED:
+    spark.sql(f"DELETE FROM {TABLE} WHERE doc_id = '{doc_id}'")
+spark.createDataFrame(rows).write.mode("append").saveAsTable(TABLE)
+
+# COMMAND ----------
+
+df = spark.table(TABLE)
+print("chunks:", df.count(), "| distinct chunk_key:", df.select("chunk_key").distinct().count())
+print("per document:", {r["doc_id"]: r["count"] for r in df.groupBy("doc_id").count().collect()})
+
+chunks = {r["chunk_key"]: " ".join(r["chunk_text"].split()) for r in df.collect()}
+us = " ".join(t for k, t in chunks.items() if k.startswith("us-rules:"))
+ind = " ".join(t for k, t in chunks.items() if k.startswith("in-rules:"))
+print("us Rule 1 new sentence in chunks:", "does not require that a trial measured the specific time point" in us)
+print("us Rule 2 new sentence in chunks:", "is not, by itself, overstatement" in us)
+print("in Rule 2 new sentence in chunks:", "is not relevant to this rule" in ind)
+print("headers kept whole:", sorted(r["section_header"] for r in df.filter("doc_id = 'us-rules'").collect()))
