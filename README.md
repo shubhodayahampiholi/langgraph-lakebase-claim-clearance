@@ -48,7 +48,7 @@ Model outputs vary between runs, even at temperature 0. In testing, the same cla
 ## Quick start (Databricks Free Edition)
 
 1. **Create a Lakebase project** (Lakebase, then create a project). Note the endpoint path `projects/<project>/branches/<branch>/endpoints/<endpoint>`. These are resource *names*. The UI also shows UIDs (`br-...`, `ep-...`), which are not the same thing.
-2. **Add this repo as a Git folder** under Workspace. Use the Workspace location, not a Git-provider source, for any Job task.
+2. **Add this repo as a Git folder** under Workspace. The Job notebook finds the repo’s code from its own workspace path, so we ran the Job task with a Workspace source (not tested with a Git-provider source).
 3. **Run the notebooks in order**, each on Serverless. In each one, the first run stops at a widget error until you fill in the boxes at the top.
 
 | Notebook | Does |
