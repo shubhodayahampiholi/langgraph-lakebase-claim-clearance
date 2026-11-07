@@ -77,7 +77,7 @@ def sections_from(elements):
             sections[-1][1].append(table_to_text(content))
         else:
             raise ValueError(f"unhandled element type: {kind}")
-    return title, [(h, b) for h, b in sections if b]  # drop empty sections
+    return title, [(h, b) for h, b in sections if b and h != "(preamble)"]
 
 # COMMAND ----------
 
