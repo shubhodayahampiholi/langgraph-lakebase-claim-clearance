@@ -1,0 +1,19 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.env
+.env.*
+
+# Databricks and notebook scratch work
+.databricks/
+*.ipynb
+.ipynb_checkpoints/
+*scratch*
+*smoke_test*
+
+# OS and editor
+.DS_Store
+.idea/
+.vscode/
