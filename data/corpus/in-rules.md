@@ -24,15 +24,16 @@ controlled trial that shows the effect. A claim without such support is not appr
 ## Rule 2: "Clinically proven" requires local-population evidence
 
 The wording "clinically proven" may only be used where at least one randomised,
-controlled trial supporting the claim enrolled a cohort from the local population
-(participants recruited in India), subject to all of the following:
+controlled trial showing the effect the claim describes enrolled a cohort from the
+local population (participants recruited in India), subject to all of the following:
 
 - The local cohort contains at least 50 participants.
 - The results for the local cohort are reported separately from the combined results.
 - The local cohort results are consistent in direction with the combined results.
 
 Evidence from trials conducted only outside India does not satisfy this rule,
-whatever its size or quality.
+whatever its size or quality. Whether a trial measured the specific time point stated
+in a claim is not relevant to this rule (see Rule 3).
 
 ## Rule 3: No separate timing requirement
 
