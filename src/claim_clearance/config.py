@@ -16,3 +16,10 @@ REGION_JOB_ID = os.environ.get("CLAIM_CLEARANCE_REGION_JOB_ID", "<your-job-id>")
 # Embedding model used to match similar claims, and its vector size.
 EMBEDDING_ENDPOINT = "databricks-gte-large-en"
 EMBEDDING_DIMS = 1024
+
+# Full name of the AI Search index over the corpus chunks (see notebooks/04_parse_and_chunk.py).
+# Set it in your notebook before importing claim_clearance:
+#     os.environ["CLAIM_CLEARANCE_SEARCH_INDEX"] = "my_catalog.my_schema.chunks_index"
+SEARCH_INDEX = os.environ.get(
+    "CLAIM_CLEARANCE_SEARCH_INDEX", "<your-catalog>.<your-schema>.chunks_index"
+)
