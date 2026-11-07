@@ -4,9 +4,9 @@ Runs on its own thread (claim_id:region), so each region's reviewer resumes
 independently. Input is only claim_id and region; everything else is read from
 the claims table.
 
-Real: load_context, regulatory_check (a model judges each rule), risk_score and recommend
-(plain Python over the verdicts), human_review, finalize.
-Still a placeholder: similar_claims.
+Real: load_context, regulatory_check (a model judges each rule), similar_claims (past
+overrides, shown to the reviewer only), risk_score and recommend (plain Python over the
+verdicts), human_review, finalize.
 """
 from typing import TypedDict
 
@@ -17,8 +17,10 @@ from claim_clearance.claims import get_claim, set_status
 from claim_clearance.db import connect
 from claim_clearance.judge import judge_region
 from claim_clearance.knowledge import get_region_rules
-from claim_clearance.memory import make_store, save_lesson
+from claim_clearance.memory import make_store, save_lesson, find_similar_lessons
 from claim_clearance.tracker import decide_region
+
+LESSON_FIELDS = ["claim_id", "claim_text", "system_recommendation", "reviewer_decision", "reason", "score"]
 
 
 class ChildState(TypedDict, total=False):
@@ -30,6 +32,7 @@ class ChildState(TypedDict, total=False):
     global_findings: dict
     regulatory: dict
     similar: list
+    similar_error: str
     risk: str
     recommendation: str
     rationale: str
@@ -60,8 +63,18 @@ def regulatory_check(state):
     return {"regulatory": verdict}
 
 
-def similar_claims(state):
-    return {"similar": []}  # placeholder: lessons are not used yet
+async def similar_claims(state):
+    """Past overrides in this region that look like this claim. Shown to the reviewer only:
+    risk_score and recommend never read them."""
+    try:
+        async with make_store() as store:
+            hits = await find_similar_lessons(store, state["region"], state["claim_text"], limit=4)
+        # Leave out this claim's own lesson (it could exist if the node re-runs), keep three.
+        hits = [h for h in hits if h["claim_id"] != state["claim_id"]][:3]
+        return {"similar": [{k: h.get(k) for k in LESSON_FIELDS} for h in hits]}
+    except Exception as e:
+        # Context must not block a review, but the failure must be visible to the reviewer.
+        return {"similar": [], "similar_error": f"{type(e).__name__}: {str(e)[:200]}"}
 
 
 def risk_score(state):
@@ -122,6 +135,8 @@ def human_review(state):
         "recommendation": state["recommendation"],
         "rationale": state["rationale"],
         "risk": state["risk"],
+        "similar_lessons": state.get("similar", []),
+        "similar_error": state.get("similar_error"),
     })
     return {"decision": decision}
 
