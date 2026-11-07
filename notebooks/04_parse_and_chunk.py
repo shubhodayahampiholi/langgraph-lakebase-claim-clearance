@@ -34,14 +34,52 @@ for r in rows:
 
 # COMMAND ----------
 
+# COMMAND ----------
+
 # MAGIC %md
-# MAGIC ### Stage 2: chunk with ai_prep_search and attach our tags
+# MAGIC ### Stage 2: one chunk per section, built from the stored parse
+# MAGIC `ai_prep_search` dropped the section headings from the retrieved text, so findings
+# MAGIC could not cite rule numbers. We group the parsed elements by section ourselves.
 
 # COMMAND ----------
 
-import json
+import json, re
 
 TABLE = "claim_clearance.knowledge.chunks"
+
+
+def clean(text):
+    return " ".join(text.split())  # collapse line breaks and repeated spaces
+
+
+def table_to_text(html):
+    """<table> -> one line per row: 'column: value | column: value'."""
+    rows = [re.findall(r"<t[hd][^>]*>(.*?)</t[hd]>", r, flags=re.S)
+            for r in re.findall(r"<tr[^>]*>(.*?)</tr>", html, flags=re.S)]
+    rows = [[clean(re.sub(r"<[^>]+>", "", c)) for c in r] for r in rows]
+    header, body = rows[0], rows[1:]
+    return "\n".join(" | ".join(f"{h}: {v}" for h, v in zip(header, r)) for r in body)
+
+
+def sections_from(elements):
+    """Group the ordered elements into (section header, [body pieces]) pairs."""
+    title = None
+    sections = [["(preamble)", []]]
+    for el in elements:
+        kind, content = el["type"], el.get("content") or ""
+        if kind == "title":
+            title = clean(content)
+        elif kind == "section_header":
+            sections.append([clean(content), []])
+        elif kind == "text":
+            sections[-1][1].append(clean(content))
+        elif kind == "table":
+            sections[-1][1].append(table_to_text(content))
+        else:
+            raise ValueError(f"unhandled element type: {kind}")
+    return title, [(h, b) for h, b in sections if b]  # drop empty sections
+
+# COMMAND ----------
 
 if spark.catalog.tableExists(TABLE):
     print(f"{TABLE} already exists, skipping (drop the table to rebuild it)")
@@ -50,39 +88,31 @@ else:
         m["doc_id"]: m
         for m in json.load(open("/Volumes/claim_clearance/knowledge/corpus/manifest.json"))
     }
-
     docs = spark.sql(
-        "SELECT doc_id FROM claim_clearance.knowledge.parsed_documents ORDER BY doc_id"
+        "SELECT doc_id, parsed_json FROM claim_clearance.knowledge.parsed_documents ORDER BY doc_id"
     ).collect()
 
     rows = []
     for d in docs:
         doc_id = d["doc_id"]
         tags = manifest[doc_id]  # fails loudly if a document has no tags
+        parsed = json.loads(d["parsed_json"])
+        if parsed.get("error_status"):
+            raise RuntimeError(f"{doc_id}: {parsed['error_status']}")
 
-        out = spark.sql(
-            "SELECT CAST(ai_prep_search(PARSE_JSON(parsed_json)) AS STRING) AS j "
-            "FROM claim_clearance.knowledge.parsed_documents WHERE doc_id = :d",
-            args={"d": doc_id},
-        ).first()["j"]
-        result = json.loads(out)
-        if result.get("error_status"):
-            raise RuntimeError(f"{doc_id}: {result['error_status']}")
-
-        for c in result["document"]["contents"]:
-            position = int(c["chunk_position"])
+        title, sections = sections_from(parsed["document"]["elements"])
+        for i, (header, body) in enumerate(sections):
             rows.append({
-                "chunk_key": f"{doc_id}:{position}",
-                "chunk_id": c["chunk_id"],
+                "chunk_key": f"{doc_id}:{i}",
                 "doc_id": doc_id,
-                "chunk_position": position,
+                "section_index": i,
+                "section_header": header,
                 "scope": tags["scope"],
                 "product": tags["product"],
                 "doc_type": tags["doc_type"],
-                "chunk_to_retrieve": " ".join(c["chunk_to_retrieve"].split()),
-                "chunk_to_embed": c["chunk_to_embed"],  # left exactly as returned
+                "chunk_text": f"{title}\n{header}\n\n" + "\n".join(body),
             })
-        print(doc_id, "->", sum(1 for r in rows if r["doc_id"] == doc_id), "chunk(s)")
+        print(doc_id, "->", len(sections), "chunk(s)")
 
     spark.createDataFrame(rows).write.saveAsTable(TABLE)
     spark.sql(f"ALTER TABLE {TABLE} SET TBLPROPERTIES (delta.enableChangeDataFeed = true)")
@@ -91,25 +121,28 @@ else:
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC ### Verify: read the chunks table back
+# MAGIC ### Verify
 
 # COMMAND ----------
 
 df = spark.table(TABLE)
-rows = df.collect()
+rows = df.orderBy("doc_id", "section_index").collect()
 print("chunks:", len(rows), "| distinct chunk_key:", df.select("chunk_key").distinct().count())
 print("untagged chunks:", df.filter("scope IS NULL OR scope = ''").count())
 
-for r in sorted(rows, key=lambda r: r["chunk_key"]):
-    lines = r["chunk_to_embed"].splitlines()
-    title = next((l for l in lines if l.startswith("Title:")), "")
-    sections = next((l for l in lines if l.startswith("Sections:")), "")
-    print(f"\n{r['chunk_key']} | scope={r['scope']} | retrieve={len(r['chunk_to_retrieve'])} chars")
-    print("  ", title)
-    print("  ", sections[:200])
+for r in rows:
+    print(f"{r['chunk_key']:12} scope={r['scope']:7} {len(r['chunk_text']):5} chars | {r['section_header']}")
 
-by_doc = {r["doc_id"]: r["chunk_to_retrieve"] for r in rows}
-print("\nstudy-1 table numbers present:", all(n in by_doc["study-1"] for n in ["58%", "74%", "81%", "31%", "38%", "40%"]))
-print("study-2 India line present:", "53%" in by_doc["study-2"])
-print("uk Rule 2 present:", "directly measured the effect at or before the time point claimed" in by_doc["uk-rules"])
-print("change data feed:", spark.sql(f"SHOW TBLPROPERTIES {TABLE}").filter("key = 'delta.enableChangeDataFeed'").collect())
+def find(doc_id, header_start):
+    return next(r for r in rows if r["doc_id"] == doc_id and r["section_header"].startswith(header_start))
+
+res = find("study-1", "Results")["chunk_text"]
+print("\nstudy-1 Results chunk has all six numbers:", all(n in res for n in ["58%", "74%", "81%", "31%", "38%", "40%"]))
+print("study-1 Results chunk has the significance sentence:", "statistically significant" in res)
+print("study-1 Limitations chunk has the no-data sentence:", "provides no data" in find("study-1", "Limitations")["chunk_text"])
+
+timing = next(r for r in rows if r["doc_id"] == "uk-rules" and "directly measured the effect" in r["chunk_text"])
+print("UK timing rule sits under the header:", timing["section_header"])
+
+print("\n--- study-1 Results chunk ---")
+print(res)
