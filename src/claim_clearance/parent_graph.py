@@ -1,7 +1,7 @@
 """Parent graph: the shared work for a claim, then hand-off to the regions.
 
 Runs on thread = claim_id. It ends right after dispatch and never waits for reviewers.
-The evidence check is real; the intent check is still a placeholder.
+Both shared checks are real: intent (what the claim asserts) and evidence (facts only).
 """
 from typing import TypedDict
 
@@ -10,6 +10,7 @@ from langgraph.graph import StateGraph, START, END
 from claim_clearance.claims import get_claim, save_global_findings, set_status
 from claim_clearance.db import connect
 from claim_clearance.evidence import extract_evidence_facts
+from claim_clearance.intent import classify_intent
 from claim_clearance.knowledge import get_global_evidence
 from claim_clearance.tracker import register_claim
 
@@ -17,7 +18,7 @@ from claim_clearance.tracker import register_claim
 class ParentState(TypedDict, total=False):
     claim_id: str
     claim: dict
-    intent: str
+    intent: dict
     evidence: dict
     dispatched: dict
 
@@ -32,7 +33,8 @@ async def load_claim(state):
 
 
 def intent_check(state):
-    return {"intent": "placeholder: efficacy claim"}
+    # Sees only the claim text. Nothing is blocked: a flagged claim is still reviewed.
+    return {"intent": classify_intent(state["claim"]["claim_text"])}
 
 
 def evidence_check(state):
