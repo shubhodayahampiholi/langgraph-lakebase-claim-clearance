@@ -23,3 +23,7 @@ EMBEDDING_DIMS = 1024
 SEARCH_INDEX = os.environ.get(
     "CLAIM_CLEARANCE_SEARCH_INDEX", "<your-catalog>.<your-schema>.chunks_index"
 )
+
+# Chat model that performs the knowledge checks. Any chat model on your workspace that follows
+# JSON instructions reliably will work; swap it only when a concrete test fails.
+MODEL_ENDPOINT = os.environ.get("CLAIM_CLEARANCE_MODEL", "databricks-meta-llama-3-3-70b-instruct")
