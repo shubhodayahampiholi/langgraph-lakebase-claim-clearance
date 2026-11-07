@@ -1,7 +1,7 @@
 """Parent graph: the shared work for a claim, then hand-off to the regions.
 
 Runs on thread = claim_id. It ends right after dispatch and never waits for reviewers.
-Check nodes are placeholders for now.
+The evidence check is real; the intent check is still a placeholder.
 """
 from typing import TypedDict
 
@@ -9,6 +9,8 @@ from langgraph.graph import StateGraph, START, END
 
 from claim_clearance.claims import get_claim, save_global_findings, set_status
 from claim_clearance.db import connect
+from claim_clearance.evidence import extract_evidence_facts
+from claim_clearance.knowledge import get_global_evidence
 from claim_clearance.tracker import register_claim
 
 
@@ -16,7 +18,7 @@ class ParentState(TypedDict, total=False):
     claim_id: str
     claim: dict
     intent: str
-    evidence: str
+    evidence: dict
     dispatched: dict
 
 
@@ -34,7 +36,10 @@ def intent_check(state):
 
 
 def evidence_check(state):
-    return {"evidence": "placeholder: two supporting studies found"}
+    # The claim text is only the search call's required query text. It cannot change
+    # which chunks come back, and the extraction below never sees it.
+    chunks = get_global_evidence(state["claim"]["claim_text"])
+    return {"evidence": extract_evidence_facts(chunks)}
 
 
 def make_dispatch(start_region):
