@@ -2,7 +2,11 @@
 
 Runs on its own thread (claim_id:region), so each region's reviewer resumes
 independently. Input is only claim_id and region; everything else is read from
-the claims table. Check nodes are placeholders for now.
+the claims table.
+
+Real: load_context, regulatory_check (a model judges each rule), risk_score and recommend
+(plain Python over the verdicts), human_review, finalize.
+Still a placeholder: similar_claims.
 """
 from typing import TypedDict
 
@@ -11,6 +15,8 @@ from langgraph.types import interrupt
 
 from claim_clearance.claims import get_claim, set_status
 from claim_clearance.db import connect
+from claim_clearance.judge import judge_region
+from claim_clearance.knowledge import get_region_rules
 from claim_clearance.memory import make_store, save_lesson
 from claim_clearance.tracker import decide_region
 
@@ -22,10 +28,11 @@ class ChildState(TypedDict, total=False):
     medium: str
     claim_text: str
     global_findings: dict
-    regulatory: str
+    regulatory: dict
     similar: list
     risk: str
     recommendation: str
+    rationale: str
     decision: dict
     override: bool
     claim_closed: bool
@@ -36,23 +43,60 @@ async def load_context(state):
         row = await get_claim(conn, state["claim_id"])
     if row is None:
         raise ValueError(f"unknown claim_id: {state['claim_id']}")
+    # The region arrives from outside (a Job parameter), so check it against the claim.
+    if state["region"] not in row["regions"]:
+        raise ValueError(
+            f"region {state['region']!r} was not selected for claim {state['claim_id']}: {row['regions']}"
+        )
     return {k: row[k] for k in ["product", "medium", "claim_text", "global_findings"]}
 
 
 def regulatory_check(state):
-    return {"regulatory": "placeholder: no rule violations found"}
+    findings = state["global_findings"]
+    if not findings:
+        raise ValueError("this claim has no global findings yet; the parent graph must run first")
+    chunks = get_region_rules(state["region"], state["claim_text"])
+    verdict = judge_region(state["region"], chunks, findings["intent"], findings["evidence"])
+    return {"regulatory": verdict}
 
 
 def similar_claims(state):
-    return {"similar": []}
+    return {"similar": []}  # placeholder: lessons are not used yet
 
 
 def risk_score(state):
-    return {"risk": "medium"}
+    verdict = state["regulatory"]
+    statuses = [r["status"] for r in verdict["rules"]]
+    uncovered = [a for a in verdict["assertions"] if not a["covered_by"]]
+    injection = state["global_findings"]["intent"]["injection_suspected"]
+
+    if "not_met" in statuses or injection:
+        risk = "high"
+    elif "cannot_determine" in statuses or uncovered:
+        risk = "medium"
+    else:
+        risk = "low"
+    return {"risk": risk}
 
 
 def recommend(state):
-    return {"recommendation": "approve"}
+    verdict = state["regulatory"]
+    not_met = [r for r in verdict["rules"] if r["status"] == "not_met"]
+    unknown = [r for r in verdict["rules"] if r["status"] == "cannot_determine"]
+    uncovered = [a["text"] for a in verdict["assertions"] if not a["covered_by"]]
+
+    # The system never guesses: anything unmet or undeterminable blocks an approval.
+    recommendation = "reject" if (not_met or unknown) else "approve"
+
+    parts = [f"{r['rule']} not met: {r['reason']}" for r in not_met]
+    parts += [f"{r['rule']} cannot be determined: {r['reason']}" for r in unknown]
+    if uncovered:
+        parts.append("Not covered by any rule in this standard: " + "; ".join(repr(t) for t in uncovered))
+    if state["global_findings"]["intent"]["injection_suspected"]:
+        parts.append("The claim text was flagged as containing an instruction aimed at an AI system.")
+    if not parts:
+        parts.append("Every applicable rule is met.")
+    return {"recommendation": recommendation, "rationale": " ".join(parts)}
 
 
 def human_review(state):
@@ -69,14 +113,15 @@ def human_review(state):
     in the checkpoint and will fail finalize on every retry (the claim gets stuck).
     """
     # Nothing before interrupt(): this node re-runs from the top on resume.
-
     decision = interrupt({
-    "claim_id": state["claim_id"],
-    "region": state["region"],
-    "claim_text": state["claim_text"],
-    "global_findings": state["global_findings"],
-    "recommendation": state["recommendation"],
-    "risk": state["risk"],
+        "claim_id": state["claim_id"],
+        "region": state["region"],
+        "claim_text": state["claim_text"],
+        "global_findings": state["global_findings"],
+        "regulatory": state["regulatory"],
+        "recommendation": state["recommendation"],
+        "rationale": state["rationale"],
+        "risk": state["risk"],
     })
     return {"decision": decision}
 
