@@ -2,7 +2,10 @@
 # MAGIC %md
 # MAGIC ### Crash tests
 # MAGIC We make a step fail on purpose, continue the same thread, and check what the retry does.
-# MAGIC Fill in the `endpoint` box at the top, then run the cells in order. Don't re-run a test cell.
+# MAGIC
+# MAGIC Fill in the two boxes at the top, then run the cells in order. Don't re-run a test cell.
+# MAGIC Each test runs the real parent graph, so it makes model calls (a few per test) and uses a
+# MAGIC little of your Free Edition quota. To repeat a test, change its claim id first.
 
 # COMMAND ----------
 
@@ -21,10 +24,17 @@ dbutils.library.restartPython()
 import os, sys
 
 dbutils.widgets.text("endpoint", "")
+dbutils.widgets.text("search_index", "")
 endpoint = dbutils.widgets.get("endpoint")
-if not endpoint:
-    raise ValueError("Fill in the endpoint box: projects/<project>/branches/<branch>/endpoints/<endpoint>")
-os.environ["CLAIM_CLEARANCE_ENDPOINT"] = endpoint  # must be set before importing claim_clearance
+search_index = dbutils.widgets.get("search_index")
+if not endpoint or not search_index:
+    raise ValueError(
+        "Fill in both boxes: endpoint (projects/<project>/branches/<branch>/endpoints/<endpoint>) "
+        "and search_index (<catalog>.<schema>.chunks_index)"
+    )
+# Both must be set before claim_clearance is imported.
+os.environ["CLAIM_CLEARANCE_ENDPOINT"] = endpoint
+os.environ["CLAIM_CLEARANCE_SEARCH_INDEX"] = search_index
 
 nb_path = dbutils.notebook.entry_point.getDbutils().notebook().getContext().notebookPath().get()
 repo_root = os.path.dirname(os.path.dirname(nb_path))
@@ -52,7 +62,7 @@ print("ready | endpoint:", ENDPOINT)
 import inspect
 import claim_clearance.parent_graph as pg
 
-CLAIM_ID = "CLM-1500"
+CLAIM_ID = "CLM-2000"
 cfg = {"configurable": {"thread_id": CLAIM_ID}}
 
 # 1. Count how often the shared steps run (wrapped before the graph is built).
@@ -133,7 +143,7 @@ from langgraph.types import Command
 import claim_clearance.child_graph as cg
 from claim_clearance.memory import make_store, lesson_namespace
 
-CLAIM_ID_2 = "CLM-1600"
+CLAIM_ID_2 = "CLM-2100"
 cfg_parent_2 = {"configurable": {"thread_id": CLAIM_ID_2}}
 cfg_uk = {"configurable": {"thread_id": f"{CLAIM_ID_2}:UK"}}
 
@@ -172,10 +182,11 @@ async with AsyncCheckpointSaver(autoscaling_endpoint=ENDPOINT) as checkpointer:
     try:
         child = build_child_graph(checkpointer)
 
+        # The system recommends "reject" for this claim, so approving is an override and saves a lesson.
         print("RUN 1 (reviewer overrides)")
         try:
             await child.ainvoke(
-                Command(resume={"decision": "reject", "reason": "Evidence too thin"}), cfg_uk
+                Command(resume={"decision": "approve", "reason": "Evidence is sufficient"}), cfg_uk
             )
         except Exception as e:
             print("  crashed:", repr(e))
