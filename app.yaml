@@ -1,0 +1,4 @@
+command: ["streamlit", "run", "app/main.py"]
+env:
+  - name: CLAIM_CLEARANCE_ENDPOINT
+    valueFrom: postgres
