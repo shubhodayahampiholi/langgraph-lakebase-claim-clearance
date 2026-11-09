@@ -2,7 +2,7 @@
 
 A reference implementation of a **long-running agent with human review**, built with LangGraph and Databricks Lakebase. A brand manager submits an advertising claim for several regions. The system reviews it once for shared facts, then separately per region, then **waits as long as each regional reviewer takes**. The claim closes when the last region decides.
 
-Companion article: _[link to the article]_
+Companion article: _[https://medium.com/@shubhodaya.hampiholi/building-a-long-running-agent-checkpointing-memory-and-human-review-on-databricks-lakebase-with-30b72ed59029]_
 
 > **All data is synthetic.** The product, the studies and the regional "standards" are invented for this example. Nothing here describes any real company, regulator or production system. Databricks Free Edition is for non-commercial use.
 
