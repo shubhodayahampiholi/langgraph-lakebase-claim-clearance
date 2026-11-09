@@ -21,17 +21,27 @@ async def read_claims():
     from databricks.sdk import WorkspaceClient
     from claim_clearance.db import connect
 
-    identity = WorkspaceClient().current_user.me().user_name
+    sdk_identity = WorkspaceClient().current_user.me().user_name
     async with await connect() as conn:
-        cur = await conn.execute(
-            "SELECT claim_id, status, regions FROM claims ORDER BY submitted_at DESC LIMIT 20"
-        )
-        return identity, await cur.fetchall()
+        cur = await conn.execute("SELECT current_user")
+        pg_role = (await cur.fetchone())[0]
+        try:
+            cur = await conn.execute(
+                "SELECT claim_id, status, regions FROM claims ORDER BY submitted_at DESC LIMIT 20"
+            )
+            return sdk_identity, pg_role, await cur.fetchall(), None
+        except Exception as e:
+            return sdk_identity, pg_role, [], f"{type(e).__name__}: {e}"
 
 
 try:
-    identity, rows = asyncio.run(read_claims())
-    st.success(f"Connected to Lakebase as {identity}")
-    st.dataframe([{"claim_id": r[0], "status": r[1], "regions": ", ".join(r[2])} for r in rows])
+    sdk_identity, pg_role, rows, error = asyncio.run(read_claims())
+    st.write("Databricks identity of the App:", sdk_identity)
+    st.write("Postgres role it connected as:", pg_role)
+    if error:
+        st.error(error)
+    else:
+        st.success("Connected to Lakebase")
+        st.dataframe([{"claim_id": r[0], "status": r[1], "regions": ", ".join(r[2])} for r in rows])
 except Exception as e:
     st.error(f"{type(e).__name__}: {e}")
